@@ -1,0 +1,5 @@
+streamlit
+selenium
+requests
+webdriver-manager
+python-json-logger
