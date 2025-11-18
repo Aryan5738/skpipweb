@@ -1,0 +1,28 @@
+{
+  "name": "@neeraj-x0/ytsearch",
+  "version": "1.0.0",
+  "description": "Simple package to search YouTube - no strings attached",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "youtube",
+    "search",
+    "video",
+    "scraper"
+  ],
+  "author": "Neeraj-x0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Neeraj-x0/ytsearch"
+  },
+  "dependencies": {
+    "miniget": "^2.0.1",
+    "cheerio": "^1.0.0-rc.10"
+  },
+  "engines": {
+    "node": ">=10"
+  }
+}
