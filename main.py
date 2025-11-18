@@ -1,165 +1,297 @@
-import streamlit as st
-import json
-import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+const axios = require("axios");
+const ytsearch = require("@neeraj-x0/ytsearch");
+const express = require("express");
+const app = express();
+const port = 3000;
+
+// Middleware to parse form data
+app.use(express.urlencoded({ extended: true }));
+
+// --- YOUTUBE CORE FUNCTIONS (Your existing code) ---
+
+const search = async (query, limit = 5) => { // Increased limit for better results
+  const filters = await ytsearch.getFilters(query);
+  const filter = filters.get("Type").get("Video");
+  const options = {
+    limit,
+  };
+  const searchResults = await ytsearch(filter.url, options);
+  return searchResults.items.map(
+    ({ title, url, author, views, duration, uploadedAt }) => {
+      // Adjusted to get author name correctly
+      return { title, url, author: author ? author.name : 'Unknown', views, duration, uploadedAt };
+    }
+  );
+};
+
+const ytdlget = async (url) => {
+  return new Promise((resolve, reject) => {
+    let qu = "query=" + encodeURIComponent(url);
+
+    let config = {
+      method: "post",
+      maxBodyLength: Infinity,
+      url: "https://tomp3.cc/api/ajax/search",
+      headers: {
+        accept: "*/*",
+        "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+      },
+      data: qu,
+    };
+
+    axios
+      .request(config)
+      .then((response) => {
+        resolve(response.data);
+      })
+      .catch((error) => {
+        reject(error);
+      });
+  });
+};
+
+function formatYtdata(data, options) {
+  const { type, quality } = options;
+  const formatted_data = [];
+
+  const processFormat = (format) => {
+    if (!format) return; // Skip if format is null/undefined
+
+    const info = {
+      vid: data.vid,
+      id: format.k,
+      size: format.size,
+      quality: format.q,
+      type: format.f,
+    };
+    formatted_data.push(info);
+  };
+
+  // Ensure mp4, mp3, 3gp links exist before iterating/accessing
+  if (data.links && data.links.mp4) Object.values(data.links.mp4).forEach(processFormat);
+  if (data.links && data.links.mp3 && data.links.mp3.mp3128) processFormat(data.links.mp3.mp3128);
+  if (data.links && data.links["3gp"] && data.links["3gp"]["3gp@144p"]) processFormat(data.links["3gp"]["3gp@144p"]);
+  
+  let formatted = formatted_data;
+  if (type) {
+    formatted = formatted_data.filter((format) => format.type === type);
+  }
+  if (quality) {
+    formatted = formatted_data.filter((format) => format.quality === quality);
+  }
+  return formatted;
+}
+async function ytdlDl(vid, k) {
+  const data = `vid=${vid}&k=${encodeURIComponent(k)}`;
+
+  const config = {
+    method: "post",
+    maxBodyLength: Infinity,
+    url: "https://tomp3.cc/api/ajax/convert",
+    headers: {
+      accept: "*/*",
+      "accept-language": "en-US,en;q=0.9,en-IN;q=0.8",
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+    },
+    data: data,
+  };
+
+  try {
+    const response = await axios.request(config);
+    return response.data;
+  } catch (error) {
+    console.error(error);
+    throw new Error("An error occurred during the download request");
+  }
+}
+
+async function yta(url) {
+  const data = await ytdlget(url);
+  const formatted_data = formatYtdata(data, {
+    type: "mp3",
+  });
+  if (formatted_data.length === 0) {
+      throw new Error("MP3 format not found.");
+  }
+  const k = formatted_data[0].id;
+  const vid = formatted_data[0].vid;
+  let response = await ytdlDl(vid, k);
+
+  response = {
+    ...response,
+    sizes: formatted_data[0].size,
+    thumb: `https://i.ytimg.com/vi/${vid}/0.jpg`,
+  };
+  return response;
+}
+
+async function ytv(url, quality = "480p") {
+  const data = await ytdlget(url);
+  const formatted_data = formatYtdata(data, { type: "mp4", quality });
+  if (formatted_data.length === 0) {
+      throw new Error(`Video format with quality ${quality} not found.`);
+  }
+  const k = formatted_data[0].id;
+  const vid = formatted_data[0].vid;
+  let response = await ytdlDl(vid, k);
+  response = {
+    ...response,
+    sizes: formatted_data[0].size,
+    thumb: `https://i.ytimg.com/vi/${vid}/0.jpg`,
+  };
+  return response;
+}
 
 
-# ======================================================
-# BROWSERLESS DRIVER (YOUR API KEY INCLUDED)
-# ======================================================
-def get_driver():
-    API_KEY = "2TQSpVJyH2BZADb41f4d46d2fb237812fb263f112fa69ef25"
+// --- HTML GENERATION FUNCTION ---
+/**
+ * Generates the full HTML string for the page.
+ * @param {Array<Object>|null} results Search results array or null.
+ * @param {string} query Current search query.
+ * @param {string|null} error Error message or null.
+ * @returns {string} The full HTML content.
+ */
+function generateHtml(results = null, query = "", error = null) {
+    
+    // Function to generate result items HTML
+    const resultsHtml = results ? results.map(result => `
+        <div class="result-item">
+            <div class="result-info">
+                <h3>${result.title}</h3>
+                <p>by <strong>${result.author}</strong></p>
+                <p class="views-duration">
+                    ${result.views || 'N/A'} | ${result.duration || 'N/A'} | ${result.uploadedAt || 'N/A'}
+                </p>
+            </div>
+            <div class="result-actions">
+                <a class="audio-btn" href="/download/audio?url=${encodeURIComponent(result.url)}" target="_blank">
+                    Download MP3
+                </a>
+                <a class="video-btn" href="/download/video?url=${encodeURIComponent(result.url)}&quality=480p" target="_blank">
+                    Download MP4 (480p)
+                </a>
+            </div>
+        </div>
+    `).join('') : '';
 
-    opts = webdriver.ChromeOptions()
-    opts.set_capability("browserless:token", API_KEY)
-    opts.add_argument("--disable-blink-features=AutomationControlled")
-    opts.add_argument("--disable-gpu")
+    // HTML to show if no results were found
+    const noResultsHtml = (results && results.length === 0) ? 
+        `<p style="text-align: center; color: orange;">No results found for "${query}". Try a different query.</p>` : '';
 
-    driver = webdriver.Remote(
-        command_executor="https://chrome.browserless.io/webdriver",
-        options=opts
-    )
-    return driver
-
-
-# ======================================================
-# COOKIE LOADER
-# ======================================================
-def load_cookies(driver, cookies):
-    driver.get("https://facebook.com")
-    time.sleep(4)
-
-    for c in cookies:
-        try:
-            driver.add_cookie({"name": c["name"], "value": c["value"]})
-        except:
-            pass
-
-    driver.refresh()
-    time.sleep(4)
-    return True
-
-
-# ======================================================
-# MESSAGE SENDER
-# ======================================================
-def send_message(driver, msg_url, messages, delay, log_callback):
-    try:
-        log_callback("🔗 Opening Messenger chat...", "blue")
-        driver.get(msg_url)
-        time.sleep(5)
-
-        input_box = driver.find_element(By.XPATH, "//div[@role='textbox']")
-        log_callback("📩 Message box found!", "green")
-
-        # Send messages line-by-line
-        for msg in messages:
-            log_callback(f"✏ Typing: {msg}", "white")
-
-            for ch in msg:
-                input_box.send_keys(ch)
-                time.sleep(0.04)
-
-            input_box.send_keys(Keys.ENTER)
-            log_callback("✔ Message sent!", "green")
-            time.sleep(delay)
-
-        return True
-
-    except Exception as e:
-        log_callback(f"❌ ERROR: {str(e)}", "red")
-        return False
+    // HTML for the error message
+    const errorHtml = error ? `<div class="error">${error}</div>` : '';
 
 
-# ======================================================
-# STREAMLIT UI
-# ======================================================
-st.set_page_config(
-    page_title="FB Auto Messenger",
-    page_icon="💬",
-    layout="wide"
-)
+    // The entire HTML structure as a JavaScript template literal
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Song Downloader (Single-File)</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f9; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; }
+        form { display: flex; margin-bottom: 20px; }
+        input[type="text"] { flex-grow: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px 0 0 4px; font-size: 16px; }
+        button { padding: 10px 15px; background-color: #ff0000; color: white; border: none; border-radius: 0 4px 4px 0; cursor: pointer; font-size: 16px; }
+        button:hover { background-color: #cc0000; }
+        .error { color: red; text-align: center; margin-bottom: 15px; font-weight: bold; }
+        .result-item { border: 1px solid #eee; padding: 15px; margin-bottom: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; background-color: #fafafa; }
+        .result-info { flex-grow: 1; }
+        .result-info h3 { margin-top: 0; color: #06c; }
+        .result-actions { display: flex; gap: 10px; }
+        .result-actions a { text-decoration: none; padding: 8px 12px; border-radius: 4px; font-size: 14px; transition: background-color 0.3s; }
+        .audio-btn { background-color: #4CAF50; color: white; }
+        .audio-btn:hover { background-color: #45a049; }
+        .video-btn { background-color: #007bff; color: white; }
+        .video-btn:hover { background-color: #0056b3; }
+        .views-duration { font-size: 0.9em; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Song/Video Downloader</h1>
 
-st.markdown("""
-    <h1 style='text-align:center;color:#4CAF50;'>📨 Facebook Auto Messenger Bot</h1>
-    <p style='text-align:center;'>Cookies + Selenium + Browserless + HTML Logs UI</p>
-    <hr>
-""", unsafe_allow_html=True)
+        ${errorHtml}
 
+        <form action="/search" method="POST">
+            <input type="text" name="query" placeholder="Enter song name or YouTube video title..." value="${query}" required>
+            <button type="submit">Search</button>
+        </form>
 
-# Input fields
-msg_url = st.text_input("🔗 Messenger Chat URL")
-messages_text = st.text_area("💬 Messages (line-by-line)", "Hello\nHow are you?")
-delay = st.number_input("⏱ Delay (seconds)", 1, 20, 3)
+        ${results && results.length > 0 ? `<h2>Search Results for: "${query}"</h2>` : ''}
+        <div>
+            ${resultsHtml}
+            ${noResultsHtml}
+        </div>
 
-# PRELOADED COOKIE JSON (your cookies)
-cookie_json = """
-[
-{"name":"datr","value":"x-4VZ4GTwgXotc2K6i8LtUGI"},
-{"name":"sb","value":"x-4VZxbqkmCAawFwsNZch1cr"},
-{"name":"m_pixel_ratio","value":"2"},
-{"name":"ps_l","value":"1"},
-{"name":"ps_n","value":"1"},
-{"name":"usida","value":"eyJ2ZXIiOjEsImlkIjoiQXNwa3poZzFqMWYwbmsiLCJ0aW1lIjoxNzM2MDIyNjM2fQ=="},
-{"name":"oo","value":"v1"},
-{"name":"vpd","value":"v1;634x360x2"},
-{"name":"x-referer","value":"..."},
-{"name":"pas","value":"..."},
-{"name":"c_user","value":"61580725287646"},
-{"name":"xs","value":"6:lx_yX9F76iRb_Q:2:1761452052:-1:-1"},
-{"name":"fr","value":"..."},
-{"name":"locale","value":"en_GB"},
-{"name":"fbl_st","value":"100427941;T:29386432"},
-{"name":"wl_cbv","value":"v2;client_version:2971;timestamp:1763185966"}
-]
-"""
-cookies = json.loads(cookie_json)
+    </div>
+</body>
+</html>
+    `;
+}
 
+// --- EXPRESS ROUTES ---
 
-# ------------------------------------------------------
-# HTML LOG WINDOW
-# ------------------------------------------------------
-log_html = """
-<div style="
-    background-color:#000;
-    color:white;
-    padding:15px;
-    border-radius:10px;
-    height:450px;
-    overflow-y:scroll;
-    font-family:monospace;
-    border:2px solid #4CAF50;">
-"""
+// 1. Home Route: Renders the search page
+app.get("/", (req, res) => {
+  res.send(generateHtml());
+});
 
-log_box = st.empty()
+// 2. Search Route: Handles the search query
+app.post("/search", async (req, res) => {
+  const { query } = req.body;
+  if (!query) {
+    return res.send(generateHtml(null, "", "Please enter a search query."));
+  }
 
+  try {
+    const searchResults = await search(query);
+    res.send(generateHtml(searchResults, query, null));
+  } catch (error) {
+    console.error("Search error:", error);
+    res.send(generateHtml(null, query, "An error occurred during search. Try again."));
+  }
+});
 
-def add_log(message, color="white"):
-    global log_html
-    log_html += f"<p style='color:{color};margin:2px;'>{message}</p>"
-    log_box.markdown(log_html + "</div>", unsafe_allow_html=True)
+// 3. Download Route: Initiates the download
+app.get("/download/:type", async (req, res) => {
+  const { type } = req.params;
+  const { url, quality } = req.query;
 
+  if (!url) {
+    return res.status(400).send("Video URL is required.");
+  }
 
-# ------------------------------------------------------
-# START BUTTON
-# ------------------------------------------------------
-if st.button("🚀 START BOT"):
-    add_log("🚀 Starting Browserless driver...", "yellow")
-    driver = get_driver()
-    add_log("✔ Driver Ready!", "green")
+  try {
+    let result;
+    if (type === "audio") {
+      result = await yta(url);
+    } else if (type === "video") {
+      // Default to 480p if quality is not specified
+      result = await ytv(url, quality || "480p");
+    } else {
+      return res.status(400).send("Invalid download type. Use 'audio' or 'video'.");
+    }
 
-    add_log("🔐 Injecting cookies...", "yellow")
-    load_cookies(driver, cookies)
-    add_log("✔ Cookies Loaded!", "green")
+    if (result && result.dl_link) {
+      // Redirect to the download link to initiate the file download in the browser
+      // The content of the file (e.g., MP3/MP4) will be streamed/downloaded from the dl_link.
+      return res.redirect(result.dl_link);
+    } else {
+      return res.status(500).send("Could not retrieve download link.");
+    }
 
-    messages = [m.strip() for m in messages_text.split("\n") if m.strip()]
+  } catch (error) {
+    console.error("Download error:", error.message);
+    return res.status(500).send(`Error generating download link: ${error.message}`);
+  }
+});
 
-    add_log("💬 Starting message sending...", "yellow")
-    result = send_message(driver, msg_url, messages, delay, add_log)
-
-    if result:
-        add_log("🎉 ALL MESSAGES SENT SUCCESSFULLY!", "lightgreen")
-    else:
-        add_log("❌ FAILED!", "red")
+// Start the server
+app.listen(port, () => {
+  console.log(`YouTube Downloader App listening at http://localhost:${port}`);
+});
