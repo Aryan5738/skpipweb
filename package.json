@@ -1,28 +1,22 @@
 {
-  "name": "@neeraj-x0/ytsearch",
+  "name": "ytdl-core-downloader",
   "version": "1.0.0",
-  "description": "Simple package to search YouTube - no strings attached",
-  "main": "index.js",
+  "description": "YouTube Downloader using ytdl-core and Express",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
   "keywords": [
     "youtube",
-    "search",
-    "video",
-    "scraper"
+    "downloader",
+    "node",
+    "express"
   ],
-  "author": "Neeraj-x0",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Neeraj-x0/ytsearch"
-  },
+  "author": "",
+  "license": "ISC",
   "dependencies": {
-    "miniget": "^2.0.1",
-    "cheerio": "^1.0.0-rc.10"
-  },
-  "engines": {
-    "node": ">=10"
+    "express": "^4.19.2",
+    "ytdl-core": "^4.11.5",
+    "ytsr": "^3.5.0"
   }
 }
