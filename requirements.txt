@@ -1,5 +1,3 @@
-streamlit
+flask
 selenium
-requests
-webdriver-manager
-python-json-logger
+gunicorn
